@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dj-trackfix"
+version = "0.2.0"
+description = "DJ audio file toolkit — convert, fix, sort, and tag your tracks"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "ffmpeg-python",
+    "mutagen",
+    "musicbrainzngs",
+    "discogs-client",
+    "pyyaml",
+    "requests",
+]
+
+[project.scripts]
+trackfix = "trackfix.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["trackfix*"]
+
+[project.urls]
+Homepage = "https://soundstation.net"
+Repository = "https://github.com/squelch303/dj-trackfix"

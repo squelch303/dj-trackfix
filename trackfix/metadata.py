@@ -1,0 +1,376 @@
+"""
+Metadata lookup and writing.
+Looks up Title, Artist, Genre, Year from MusicBrainz and/or Discogs.
+Writes tags to AIFF (and other formats) using mutagen.
+"""
+
+from pathlib import Path
+
+try:
+    import musicbrainzngs as mb
+except ImportError:
+    mb = None
+
+try:
+    import discogs_client
+except ImportError:
+    discogs_client = None
+
+try:
+    from mutagen import File as MutagenFile
+except ImportError:
+    MutagenFile = None
+
+from .beatport import search_beatport, get_valid_token
+
+
+# ---------------------------------------------------------------------------
+# Lookup
+# ---------------------------------------------------------------------------
+
+def setup_musicbrainz(user_agent: str):
+    if mb is None:
+        return False
+    app, version, contact = "dj-trackfix", "0.2.0", user_agent
+    mb.set_useragent(app, version, contact)
+    return True
+
+
+def similarity(a: str, b: str) -> float:
+    """Simple case-insensitive similarity ratio between two strings."""
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+
+def is_confident_match(searched_artist: str, searched_title: str, found: dict, threshold: float = 0.6) -> bool:
+    """Return True only if the found result is close enough to what we searched for."""
+    artist_ok = similarity(searched_artist, found.get("artist", "")) >= threshold
+    title_ok  = similarity(searched_title,  found.get("title",  "")) >= threshold
+    return artist_ok and title_ok
+
+
+def lookup_musicbrainz(artist: str, title: str, confidence: float = 0.6) -> dict:
+    """Search MusicBrainz for a recording. Returns dict of found fields."""
+    if mb is None:
+        return {}
+    try:
+        result = mb.search_recordings(recording=title, artist=artist, limit=1)
+        recordings = result.get("recording-list", [])
+        if not recordings:
+            return {}
+        rec = recordings[0]
+        meta = {
+            "title": rec.get("title"),
+            "artist": rec.get("artist-credit-phrase"),
+        }
+        releases = rec.get("release-list", [])
+        if releases:
+            rel = releases[0]
+            meta["year"] = rel.get("date", "")[:4] or None
+        meta = {k: v for k, v in meta.items() if v}
+
+        if not is_confident_match(artist, title, meta, threshold=confidence):
+            print(f"  [meta]    MusicBrainz: low confidence match — skipping ({meta.get('artist')} / {meta.get('title')})")
+            return {}
+
+        return meta
+    except Exception as e:
+        print(f"  [meta]    MusicBrainz error: {e}")
+        return {}
+
+
+def lookup_discogs(artist: str, title: str, token: str = "", access_token: str = "", access_secret: str = "") -> dict:
+    """Search Discogs for a release. Returns dict of found fields."""
+    if discogs_client is None:
+        return {}
+    try:
+        if access_token and access_secret:
+            d = discogs_client.Client("dj-trackfix/0.2.0")
+            d.set_token(access_token, access_secret)
+        elif token:
+            d = discogs_client.Client("dj-trackfix/0.2.0", user_token=token)
+        else:
+            return {}
+        results = d.search(f"{artist} {title}", type="release")
+        if not results:
+            return {}
+        release = results[0]
+        meta = {}
+        genres = getattr(release, "genres", None)
+        styles = getattr(release, "styles", None)
+        # Prefer styles (more specific) over genres
+        if styles:
+            meta["genre"] = styles[0]
+        elif genres:
+            meta["genre"] = genres[0]
+        year = getattr(release, "year", None)
+        if year:
+            meta["year"] = str(year)
+        return meta
+    except Exception as e:
+        print(f"  [meta]    Discogs error: {e}")
+        return {}
+
+
+def lookup_metadata(artist: str, title: str, config: dict) -> dict:
+    """
+    Look up metadata from enabled sources.
+    Priority: MusicBrainz (title/artist/year) → Discogs (genre) → Beatport (genre, most accurate for electronic)
+    """
+    cfg = config["metadata"]
+    meta = {}
+
+    if cfg["musicbrainz"]["enabled"]:
+        setup_musicbrainz(cfg["musicbrainz"]["user_agent"])
+        confidence = cfg["musicbrainz"].get("confidence", 0.6)
+        mb_meta = lookup_musicbrainz(artist, title, confidence=confidence)
+        meta.update(mb_meta)
+
+    if cfg["discogs"]["enabled"]:
+        discogs_meta = lookup_discogs(
+            artist, title,
+            token=cfg["discogs"].get("token", ""),
+            access_token=cfg["discogs"].get("access_token", ""),
+            access_secret=cfg["discogs"].get("access_secret", ""),
+        )
+        if discogs_meta:
+            print(f"  [meta]    Discogs found: {discogs_meta}")
+            for k, v in discogs_meta.items():
+                if k not in meta:
+                    meta[k] = v
+        else:
+            print(f"  [meta]    Discogs: no results")
+
+    # Beatport last — best genre taxonomy for electronic music
+    bp_cfg = cfg.get("beatport", {})
+    if bp_cfg.get("enabled") and "genre" not in meta:
+        token = get_valid_token(bp_cfg)
+        if token:
+            bp_meta = search_beatport(artist, title, token)
+            if bp_meta:
+                print(f"  [meta]    Beatport found: {bp_meta}")
+                for k, v in bp_meta.items():
+                    if k not in meta:
+                        meta[k] = v
+            else:
+                print(f"  [meta]    Beatport: no results")
+
+    return meta
+
+
+# ---------------------------------------------------------------------------
+# Tag writing
+# ---------------------------------------------------------------------------
+
+def read_existing_tags(filepath: Path) -> dict:
+    """Read current tag values from a file. Returns dict of field: value."""
+    try:
+        from mutagen.aiff import AIFF
+        from mutagen.mp3 import MP3
+        ext = filepath.suffix.lower()
+        frame_map = {"TIT2": "title", "TPE1": "artist", "TCON": "genre",
+                     "TDRC": "year", "TBPM": "bpm", "TKEY": "key"}
+        if ext in (".aiff", ".aif"):
+            audio = AIFF(str(filepath))
+        elif ext == ".mp3":
+            audio = MP3(str(filepath))
+        else:
+            audio = MutagenFile(str(filepath), easy=True)
+            if audio:
+                return {v: str(audio[k][0]) for k, v in
+                        {"title": "title", "artist": "artist", "genre": "genre",
+                         "date": "year", "bpm": "bpm"}.items() if k in audio}
+            return {}
+        if not audio.tags:
+            return {}
+        result = {}
+        for frame_id, field in frame_map.items():
+            frame = audio.tags.get(frame_id)
+            if frame and str(frame).strip():
+                result[field] = str(frame).strip()
+        return result
+    except Exception:
+        return {}
+
+
+def write_tags(filepath: Path, tags: dict, fields_cfg: dict, dry_run: bool, verbose: bool, force: bool = False) -> dict:
+    """Write metadata tags to an audio file using mutagen ID3 frames directly.
+    Skips fields that already have a value unless force=True."""
+    result = {"src": filepath, "tags_written": {}, "status": None, "error": None}
+
+    if MutagenFile is None:
+        result["status"] = "error"
+        result["error"] = "mutagen not installed"
+        return result
+
+    # Read existing tags — don't overwrite populated fields unless forced
+    existing = {} if force else read_existing_tags(filepath)
+    to_write = {
+        k: v for k, v in tags.items()
+        if fields_cfg.get(k, True) and v and not existing.get(k)
+    }
+
+    if not to_write:
+        result["status"] = "no_data"
+        if verbose:
+            print(f"  [meta]    {filepath.name} — no metadata found")
+        return result
+
+    if verbose or dry_run:
+        for k, v in to_write.items():
+            print(f"  [meta]    {filepath.name} — {k}: {v}")
+
+    if dry_run:
+        result["status"] = "dry_run"
+        result["tags_written"] = to_write
+        return result
+
+    try:
+        from mutagen.id3 import ID3, TIT2, TPE1, TCON, TDRC, ID3NoHeaderError
+        from mutagen.aiff import AIFF
+        from mutagen.mp3 import MP3
+        from mutagen.flac import FLAC
+
+        ext = filepath.suffix.lower()
+
+        if ext in (".aiff", ".aif"):
+            audio = AIFF(str(filepath))
+            if audio.tags is None:
+                audio.add_tags()
+            from mutagen.id3 import TBPM, TKEY
+            frame_map = {
+                "title":  lambda v: TIT2(encoding=3, text=v),
+                "artist": lambda v: TPE1(encoding=3, text=v),
+                "genre":  lambda v: TCON(encoding=3, text=v),
+                "year":   lambda v: TDRC(encoding=3, text=v),
+                "bpm":    lambda v: TBPM(encoding=3, text=v),
+                "key":    lambda v: TKEY(encoding=3, text=v),
+            }
+            for field, value in to_write.items():
+                if field in frame_map:
+                    audio.tags.add(frame_map[field](value))
+            audio.save()
+
+        elif ext == ".mp3":
+            audio = MP3(str(filepath))
+            if audio.tags is None:
+                audio.add_tags()
+            from mutagen.id3 import TBPM, TKEY
+            frame_map = {
+                "title":  lambda v: TIT2(encoding=3, text=v),
+                "artist": lambda v: TPE1(encoding=3, text=v),
+                "genre":  lambda v: TCON(encoding=3, text=v),
+                "year":   lambda v: TDRC(encoding=3, text=v),
+                "bpm":    lambda v: TBPM(encoding=3, text=v),
+                "key":    lambda v: TKEY(encoding=3, text=v),
+            }
+            for field, value in to_write.items():
+                if field in frame_map:
+                    audio.tags.add(frame_map[field](value))
+            audio.save()
+
+        else:
+            # WAV, FLAC, M4A — use easy interface
+            audio = MutagenFile(str(filepath), easy=True)
+            if audio is None:
+                result["status"] = "error"
+                result["error"] = "Could not open file with mutagen"
+                return result
+            easy_map = {"title": "title", "artist": "artist", "genre": "genre", "year": "date"}
+            for field, value in to_write.items():
+                if field in easy_map:
+                    audio[easy_map[field]] = value
+            audio.save()
+
+        result["status"] = "updated"
+        result["tags_written"] = to_write
+
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+        print(f"  [error]   {filepath.name}: {e}")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Runner
+# ---------------------------------------------------------------------------
+
+AUDIO_EXTENSIONS = {".aiff", ".aif", ".wav", ".mp3", ".m4a", ".flac"}
+
+
+def get_audio_files(input_path: Path) -> list[Path]:
+    if input_path.is_file():
+        return [input_path] if input_path.suffix.lower() in AUDIO_EXTENSIONS else []
+    return sorted(f for f in input_path.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS)
+
+
+def parse_artist_title(filepath: Path) -> tuple[str, str]:
+    """
+    Try to parse artist and title from filename.
+    Handles formats:
+      - 'Artist - Title'
+      - 'Artist-Title' (no spaces around dash)
+      - 'BPM - Key - Artist - Title'
+      - 'BPM-Key-Artist-Title'
+    Underscores are treated as spaces.
+    """
+    import re
+
+    name = filepath.stem.replace("_", " ")
+
+    # Try splitting on ' - ' first (most common DJ format)
+    if " - " in name:
+        parts = [p.strip() for p in name.split(" - ")]
+    else:
+        # Fall back to splitting on bare '-'
+        parts = [p.strip() for p in name.split("-")]
+
+    # Strip leading BPM (e.g. 140) and Camelot key (e.g. 8A, 12B)
+    filtered = [p for p in parts if not re.match(r"^\d{2,3}$|^\d+[AaBb]$", p)]
+
+    # Clean up parenthetical suffixes from title (Extended Mix) etc — keep them
+    if len(filtered) >= 2:
+        artist = filtered[0].strip()
+        title = filtered[1].strip()
+        return artist, title
+
+    return name.strip(), ""
+
+
+def run_meta(input_path: Path, config: dict, dry_run: bool, verbose: bool) -> list[dict]:
+    """Look up and write metadata for all audio files. Returns list of result dicts."""
+    if MutagenFile is None:
+        print("[meta] Error: mutagen is not installed. Run: pip install mutagen")
+        return []
+
+    fields_cfg = config["metadata"]["fields"]
+    files = get_audio_files(input_path)
+
+    if not files:
+        print("[meta] No audio files found")
+        return []
+
+    use_filename = config.get("metadata", {}).get("use_filename", True)
+
+    print(f"[meta] {len(files)} file(s) to process")
+    results = []
+    for f in files:
+        artist, title = parse_artist_title(f)
+        print(f"  [meta]    Searching: artist={artist!r}  title={title!r}")
+
+        tags = lookup_metadata(artist, title, config)
+
+        # If filename parsing gave us artist/title and they're not already found
+        # from an external source, seed them from the filename
+        if use_filename:
+            if artist and "title" not in tags:
+                tags["title"] = title
+            if title and "artist" not in tags:
+                tags["artist"] = artist
+
+        result = write_tags(f, tags, fields_cfg, dry_run, verbose)
+        results.append(result)
+
+    return results

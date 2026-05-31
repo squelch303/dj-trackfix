@@ -1,0 +1,69 @@
+# dj-trackfix configuration
+# Copy to config.yaml and fill in your values.
+# config.yaml is gitignored — never commit it.
+
+# --- Input / Output ---
+input_dir: "."                  # Default input directory (overridden by --input)
+output_dir: "."                 # Where converted files are written
+keep_originals: true            # Keep original files after convert (renamed to *.converted)
+
+# --- Convert ---
+convert:
+  source_formats:               # Formats to convert from
+    - wav
+    - m4a
+  target_format: aiff           # Target format (aiff recommended for rekordbox)
+
+# --- Fix ---
+fix:
+  brackets: true                # Replace [ ] with ( ) in filenames
+  leading_numbers: true         # Strip leading numbers from filenames
+  char_replace:                 # Custom character substitutions in filenames
+    ".": "_"                    # e.g. A.S.Y.S → A_S_Y_S (dots in artist names)
+
+# --- Sort ---
+sort:
+  by: genre                     # Sort by: genre, artist, year
+  fallback_folder: "Other"      # Folder for tracks with no matching tag
+
+# --- Metadata ---
+metadata:
+  musicbrainz:
+    enabled: true
+    user_agent: "dj-trackfix/0.2.0 ( squelch303@soundstation.net )"
+    confidence: 0.6             # Minimum similarity score (0-1) to accept a match
+  discogs:
+    enabled: true
+    # Personal token — recommended for most users
+    # Generate one at: https://www.discogs.com/settings/developers → Generate new token
+    token: ""
+    # OAuth — only needed if you've registered your own Discogs app
+    # Add your app credentials here, then run: trackfix --auth-discogs
+    consumer_key: ""
+    consumer_secret: ""
+    # Access tokens set automatically by --auth-discogs, do not edit manually
+    access_token: ""
+    access_secret: ""
+  beatport:
+    enabled: false              # Enable after authenticating: trackfix --auth-beatport
+    # Find client_id by logging into https://api.beatport.com/v4/docs/
+    # DevTools → Network → filter 'token' → copy client_id from request body
+    client_id: ""               # From your Beatport app: https://api.beatport.com/v4/auth/o/applications/
+    client_secret: ""           # From your Beatport app (keep private)
+    username: ""                # Optional — stored to skip prompt on re-auth
+    password: ""                # Optional — stored to skip prompt on re-auth
+    access_token: ""            # Set automatically by --auth-beatport
+    refresh_token: ""           # Set automatically by --auth-beatport
+  use_filename: true            # Seed title/artist from filename if not found externally
+  fields:                       # Which fields to write
+    title: true
+    artist: true
+    genre: true
+    year: true
+    bpm: true                   # Only written if not already set (MIK takes priority)
+    key: true                   # Only written if not already set (MIK takes priority)
+
+# --- Report ---
+report:
+  enabled: true                 # Always print a summary report
+  output_file: ""               # Optional: write report to file (e.g. trackfix-report.txt)

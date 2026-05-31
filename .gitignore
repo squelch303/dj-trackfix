@@ -1,3 +1,25 @@
+# dj-trackfix
+.venv/
+*.egg-info/
+config.yaml
+*.wav_converted
+*.m4a_converted
+*.aiff_converted
+
+# Audio files — never commit actual tracks
+*.aiff
+*.aif
+*.wav
+*.mp3
+*.m4a
+*.flac
+
+# uv — commit uv.lock for reproducible installs, uncomment to ignore
+uv.lock
+
+# Reports
+trackfix-report.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
