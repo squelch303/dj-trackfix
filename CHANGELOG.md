@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.1] - 2026-06-01
+
+### Fixed
+- Key tags are now always normalised to Camelot notation before writing (e.g. `D Major` → `10B`, `Am` → `8A`). Applies to `--meta`, `--set`, and all metadata sources. Beatport already returns Camelot so those pass through unchanged.
+
 ## [0.2.0] - 2026-06-01
 
 Initial toolkit release. Replaces the old `audio_converts/` and `audio_fix_scripts/` scripts.
