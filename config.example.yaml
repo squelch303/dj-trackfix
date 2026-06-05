@@ -44,6 +44,8 @@ metadata:
     # Access tokens set automatically by --auth-discogs, do not edit manually
     access_token: ""
     access_secret: ""
+    max_retries: 3                # Retry attempts on rate-limit (HTTP 429)
+    retry_delay: 60.0             # Seconds to wait between retries (overridden by Retry-After header)
   beatport:
     enabled: false              # Enable after authenticating: trackfix --auth-beatport
     # Find client_id by logging into https://api.beatport.com/v4/docs/

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dj-trackfix"
-version = "0.2.1"
+version = "0.2.2"
 description = "DJ audio file toolkit — convert, fix, sort, and tag your tracks"
 readme = "README.md"
 license = "MIT"

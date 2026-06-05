@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.2.2] - 2026-06-06
+
+### Added
+
+#### `--ext EXT[,EXT]` — extension filter for `--meta`
+Limit metadata scanning to specific file extensions. Accepts a comma-separated list; leading dots optional.
+```
+trackfix --meta --ext aiff
+trackfix --meta --ext aiff,mp3
+```
+
+#### `--recursive` / `-R` — recursive subfolder scan for `--meta`
+Descend into subfolders when scanning for audio files. Without this flag behaviour is unchanged (flat scan of the input directory).
+```
+trackfix --meta -R --input /path/to/collection
+```
+
+#### `--overwrite FIELD[,FIELD]` — selective tag overwrite for `--meta`
+By default `--meta` skips any tag that already has a value. `--overwrite` lets you name specific fields to force-overwrite while leaving everything else protected. Designed for fixing garbage titles written by Rekordbox or download tools without clobbering MIK-set keys or BPM values.
+```
+trackfix --meta --overwrite title,artist --ext aiff -R --input /path
+```
+Valid field names: `title`, `artist`, `genre`, `year`, `bpm`, `key`.
+
+#### `--in-place` — write converted files next to source
+`--convert` normally writes output to the configured `output_dir`. With `--in-place`, each converted file is written to the same folder as its source. Works correctly when scanning recursively — each file stays in its own subfolder.
+```
+trackfix --convert --in-place --input /path/to/tracks
+```
+
 ## [0.2.1] - 2026-06-01
 
 ### Fixed
