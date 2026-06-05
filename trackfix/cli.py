@@ -43,6 +43,10 @@ def main():
     opts = parser.add_argument_group("Options")
     opts.add_argument("--input",   "-i", default=".", help="Input file or directory (default: current dir)")
     opts.add_argument("--config",  "-C", default=None, help="Path to config.yaml (default: ./config.yaml)")
+    opts.add_argument("--ext",           default=None, metavar="EXT[,EXT]", help="Limit --meta to specific extensions, e.g. aiff or aiff,mp3")
+    opts.add_argument("--in-place",      action="store_true", help="Write converted files to the same folder as the source (--convert)")
+    opts.add_argument("--overwrite",     default=None, metavar="FIELD[,FIELD]", help="Overwrite specific tags even if already set, e.g. title,artist,bpm")
+    opts.add_argument("--recursive", "-R", action="store_true", help="Scan subfolders recursively (--meta)")
     opts.add_argument("--dry-run", "-n", action="store_true", help="Preview changes without writing anything")
     opts.add_argument("--verbose", "-v", action="store_true", help="Print every action")
     opts.add_argument("--report",  "-r", action="store_true", help="Print summary report at the end")
@@ -112,11 +116,13 @@ def main():
 
     if do_convert:
         print()
-        convert_results = run_convert(input_path, config, dry_run, verbose)
+        convert_results = run_convert(input_path, config, dry_run, verbose, in_place=args.in_place)
 
     if do_meta:
         print()
-        meta_results = run_meta(input_path, config, dry_run, verbose)
+        ext_filter = {f".{e.lstrip('.')}" for e in args.ext.split(",")} if args.ext else None
+        overwrite_fields = {f.strip() for f in args.overwrite.split(",")} if args.overwrite else None
+        meta_results = run_meta(input_path, config, dry_run, verbose, ext_filter=ext_filter, recursive=args.recursive, overwrite_fields=overwrite_fields)
 
     if do_sort:
         print()
