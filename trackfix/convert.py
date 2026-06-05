@@ -82,15 +82,16 @@ def convert_file(
     return result
 
 
-def run_convert(input_path: Path, config: dict, dry_run: bool, verbose: bool) -> list[dict]:
+def run_convert(input_path: Path, config: dict, dry_run: bool, verbose: bool, in_place: bool = False) -> list[dict]:
     """Run conversion on all matching files. Returns list of result dicts."""
     cfg = config["convert"]
     source_formats = cfg["source_formats"]
     target_format = cfg["target_format"]
-    output_dir = Path(config["output_dir"])
+    configured_output_dir = Path(config["output_dir"])
     keep_originals = config["keep_originals"]
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if not in_place:
+        configured_output_dir.mkdir(parents=True, exist_ok=True)
 
     files = get_source_files(input_path, source_formats)
     if not files:
@@ -100,6 +101,7 @@ def run_convert(input_path: Path, config: dict, dry_run: bool, verbose: bool) ->
     print(f"[convert] {len(files)} file(s) to convert → {target_format.upper()}")
     results = []
     for f in files:
+        output_dir = f.parent if in_place else configured_output_dir
         results.append(convert_file(f, output_dir, target_format, keep_originals, dry_run, verbose))
 
     return results
