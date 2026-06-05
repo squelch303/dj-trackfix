@@ -13,8 +13,10 @@ except ImportError:
 
 try:
     import discogs_client
+    import discogs_client.exceptions as discogs_exc
 except ImportError:
     discogs_client = None
+    discogs_exc = None
 
 try:
     from mutagen import File as MutagenFile
@@ -123,8 +125,12 @@ def lookup_musicbrainz(artist: str, title: str, confidence: float = 0.6) -> dict
         return {}
 
 
-def lookup_discogs(artist: str, title: str, token: str = "", access_token: str = "", access_secret: str = "") -> dict:
-    """Search Discogs for a release. Returns dict of found fields."""
+def lookup_discogs(artist: str, title: str, token: str = "", access_token: str = "", access_secret: str = "",
+                   max_retries: int = 3, retry_delay: float = 60.0) -> dict:
+    """Search Discogs for a release. Returns dict of found fields.
+    Retries on HTTP 429 (rate limit), honouring Retry-After if present."""
+    import time
+
     if discogs_client is None:
         return {}
     try:
@@ -135,22 +141,47 @@ def lookup_discogs(artist: str, title: str, token: str = "", access_token: str =
             d = discogs_client.Client("dj-trackfix/0.2.0", user_token=token)
         else:
             return {}
-        results = d.search(f"{artist} {title}", type="release")
-        if not results:
-            return {}
-        release = results[0]
-        meta = {}
-        genres = getattr(release, "genres", None)
-        styles = getattr(release, "styles", None)
-        # Prefer styles (more specific) over genres
-        if styles:
-            meta["genre"] = styles[0]
-        elif genres:
-            meta["genre"] = genres[0]
-        year = getattr(release, "year", None)
-        if year:
-            meta["year"] = str(year)
-        return meta
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                results = d.search(f"{artist} {title}", type="release")
+                if not results:
+                    return {}
+                release = results[0]
+                meta = {}
+                genres = getattr(release, "genres", None)
+                styles = getattr(release, "styles", None)
+                # Prefer styles (more specific) over genres
+                if styles:
+                    meta["genre"] = styles[0]
+                elif genres:
+                    meta["genre"] = genres[0]
+                year = getattr(release, "year", None)
+                if year:
+                    meta["year"] = str(year)
+                return meta
+
+            except Exception as e:
+                # Check for rate-limit error (HTTP 429)
+                status = getattr(e, "status_code", None) or getattr(e, "code", None)
+                if status == 429:
+                    wait = retry_delay
+                    # Honour Retry-After header if the exception carries it
+                    headers = getattr(e, "headers", {}) or {}
+                    if "Retry-After" in headers:
+                        try:
+                            wait = float(headers["Retry-After"])
+                        except (ValueError, TypeError):
+                            pass
+                    if attempt < max_retries:
+                        print(f"  [meta]    Discogs rate-limited — waiting {wait:.0f}s (attempt {attempt}/{max_retries})")
+                        time.sleep(wait)
+                        continue
+                    else:
+                        print(f"  [meta]    Discogs rate-limited — giving up after {max_retries} attempts")
+                        return {}
+                raise  # re-raise non-429 errors
+
     except Exception as e:
         print(f"  [meta]    Discogs error: {e}")
         return {}
@@ -176,6 +207,8 @@ def lookup_metadata(artist: str, title: str, config: dict) -> dict:
             token=cfg["discogs"].get("token", ""),
             access_token=cfg["discogs"].get("access_token", ""),
             access_secret=cfg["discogs"].get("access_secret", ""),
+            max_retries=cfg["discogs"].get("max_retries", 3),
+            retry_delay=cfg["discogs"].get("retry_delay", 60.0),
         )
         if discogs_meta:
             print(f"  [meta]    Discogs found: {discogs_meta}")
@@ -237,9 +270,9 @@ def read_existing_tags(filepath: Path) -> dict:
         return {}
 
 
-def write_tags(filepath: Path, tags: dict, fields_cfg: dict, dry_run: bool, verbose: bool, force: bool = False) -> dict:
+def write_tags(filepath: Path, tags: dict, fields_cfg: dict, dry_run: bool, verbose: bool, force_fields: set[str] | None = None) -> dict:
     """Write metadata tags to an audio file using mutagen ID3 frames directly.
-    Skips fields that already have a value unless force=True."""
+    Skips fields that already have a value unless the field is listed in force_fields."""
     result = {"src": filepath, "tags_written": {}, "status": None, "error": None}
 
     if MutagenFile is None:
@@ -247,11 +280,12 @@ def write_tags(filepath: Path, tags: dict, fields_cfg: dict, dry_run: bool, verb
         result["error"] = "mutagen not installed"
         return result
 
-    # Read existing tags — don't overwrite populated fields unless forced
-    existing = {} if force else read_existing_tags(filepath)
+    # Read existing tags — don't overwrite populated fields unless explicitly forced
+    existing = read_existing_tags(filepath)
+    force_fields = force_fields or set()
     to_write = {
         k: v for k, v in tags.items()
-        if fields_cfg.get(k, True) and v and not existing.get(k)
+        if fields_cfg.get(k, True) and v and (k in force_fields or not existing.get(k))
     }
     # Always normalise key to Camelot notation
     if "key" in to_write:
@@ -347,10 +381,12 @@ def write_tags(filepath: Path, tags: dict, fields_cfg: dict, dry_run: bool, verb
 AUDIO_EXTENSIONS = {".aiff", ".aif", ".wav", ".mp3", ".m4a", ".flac"}
 
 
-def get_audio_files(input_path: Path) -> list[Path]:
+def get_audio_files(input_path: Path, ext_filter: set[str] | None = None, recursive: bool = False) -> list[Path]:
+    allowed = ext_filter if ext_filter else AUDIO_EXTENSIONS
     if input_path.is_file():
-        return [input_path] if input_path.suffix.lower() in AUDIO_EXTENSIONS else []
-    return sorted(f for f in input_path.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS)
+        return [input_path] if input_path.suffix.lower() in allowed else []
+    glob = input_path.rglob("*") if recursive else input_path.iterdir()
+    return sorted(f for f in glob if f.is_file() and f.suffix.lower() in allowed)
 
 
 def parse_artist_title(filepath: Path) -> tuple[str, str]:
@@ -386,14 +422,14 @@ def parse_artist_title(filepath: Path) -> tuple[str, str]:
     return name.strip(), ""
 
 
-def run_meta(input_path: Path, config: dict, dry_run: bool, verbose: bool) -> list[dict]:
+def run_meta(input_path: Path, config: dict, dry_run: bool, verbose: bool, ext_filter: set[str] | None = None, recursive: bool = False, overwrite_fields: set[str] | None = None) -> list[dict]:
     """Look up and write metadata for all audio files. Returns list of result dicts."""
     if MutagenFile is None:
         print("[meta] Error: mutagen is not installed. Run: pip install mutagen")
         return []
 
     fields_cfg = config["metadata"]["fields"]
-    files = get_audio_files(input_path)
+    files = get_audio_files(input_path, ext_filter, recursive)
 
     if not files:
         print("[meta] No audio files found")
@@ -417,7 +453,7 @@ def run_meta(input_path: Path, config: dict, dry_run: bool, verbose: bool) -> li
             if title and "artist" not in tags:
                 tags["artist"] = artist
 
-        result = write_tags(f, tags, fields_cfg, dry_run, verbose)
+        result = write_tags(f, tags, fields_cfg, dry_run, verbose, force_fields=overwrite_fields)
         results.append(result)
 
     return results
