@@ -20,17 +20,45 @@ def get_audio_files(input_path: Path) -> list[Path]:
     return sorted(f for f in input_path.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS)
 
 
-def read_tag(filepath: Path, tag: str) -> str | None:
-    """Read a single tag from an audio file using mutagen."""
+EASY_TAG_MAP = {
+    "genre": "genre",
+    "artist": "artist",
+    "year": "date",
+}
+
+# mutagen's easy=True interface doesn't expose ID3 frames for AIFF/MP3 — it
+# silently returns raw frame keys (TCON, TPE1, TDRC) instead of "genre" etc.
+# Read those formats via their raw ID3 frames directly, same as info.py/metadata.py.
+ID3_FRAME_MAP = {
+    "genre": "TCON",
+    "artist": "TPE1",
+    "year": "TDRC",
+}
+
+
+def read_tag(filepath: Path, sort_by: str) -> str | None:
+    """Read the sort-relevant tag value from an audio file using mutagen."""
     if MutagenFile is None:
         return None
+    ext = filepath.suffix.lower()
     try:
-        audio = MutagenFile(str(filepath), easy=True)
-        if audio is None:
+        if ext in (".aiff", ".aif", ".mp3"):
+            from mutagen.aiff import AIFF
+            from mutagen.mp3 import MP3
+            audio = AIFF(str(filepath)) if ext in (".aiff", ".aif") else MP3(str(filepath))
+            if not audio.tags:
+                return None
+            frame = audio.tags.get(ID3_FRAME_MAP.get(sort_by, "TCON"))
+            if frame and str(frame).strip():
+                return str(frame).strip()
             return None
-        values = audio.get(tag)
-        if values:
-            return str(values[0]).strip()
+        else:
+            audio = MutagenFile(str(filepath), easy=True)
+            if audio is None:
+                return None
+            values = audio.get(EASY_TAG_MAP.get(sort_by, "genre"))
+            if values:
+                return str(values[0]).strip()
     except Exception:
         pass
     return None
@@ -38,13 +66,7 @@ def read_tag(filepath: Path, tag: str) -> str | None:
 
 def get_sort_key(filepath: Path, sort_by: str) -> str | None:
     """Get the value to sort by from the file's tags."""
-    tag_map = {
-        "genre": "genre",
-        "artist": "artist",
-        "year": "date",
-    }
-    tag = tag_map.get(sort_by, "genre")
-    value = read_tag(filepath, tag)
+    value = read_tag(filepath, sort_by)
     if value and sort_by == "year":
         # Normalise to 4-digit year
         value = value[:4]
