@@ -1,20 +1,21 @@
 name: Release
 
 # Builds the Windows GUI exe + installer and publishes them to a GitHub
-# Release whenever a version tag (v1.2.3) is pushed.
+# Release whenever a version tag (e.g. 0.3.0 — no "v" prefix, matching this
+# repo's existing tags 0.2.0/0.2.1/0.2.2) is pushed.
 #
 # To cut a release:
 #   1. Bump version in pyproject.toml and packaging/installer.iss comments
 #      (cosmetic only — the installer version below comes from the tag).
 #   2. Update CHANGELOG.md.
-#   3. git tag v1.2.3 && git push origin v1.2.3
+#   3. git tag 0.3.0 && git push origin 0.3.0
 #
 # See packaging/BUILD.md for what this workflow automates locally.
 
 on:
   push:
     tags:
-      - "v*"
+      - "*.*.*"
 
 permissions:
   contents: write

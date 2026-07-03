@@ -14,11 +14,11 @@ Releases automatically — see `.github/workflows/release.yml`.
 3. Commit, then tag and push:
    ```bash
    git add -A
-   git commit -m "Release v0.3.0"
-   git tag v0.3.0
+   git commit -m "Release 0.3.0"
+   git tag 0.3.0
    git push origin main --tags
    ```
-4. GitHub Actions picks up the `v*` tag push and, on a `windows-latest`
+4. GitHub Actions picks up the tag push and, on a `windows-latest`
    runner:
    - installs dj-trackfix and PyInstaller
    - builds `dj-trackfix-gui.exe` (onedir)
@@ -32,7 +32,7 @@ Releases automatically — see `.github/workflows/release.yml`.
 
 Watch progress under the repo's **Actions** tab. A run takes a few minutes;
 if it fails partway, re-pushing the same tag won't retrigger the workflow —
-delete the tag (`git tag -d v0.3.0 && git push origin :refs/tags/v0.3.0`),
+delete the tag (`git tag -d 0.3.0 && git push origin :refs/tags/0.3.0`),
 fix the issue, and re-tag.
 
 ## Building locally instead
