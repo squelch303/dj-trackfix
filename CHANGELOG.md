@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.2] - 2026-07-03
+
+### Fixed
+- The built exe reported `v0.2.2` regardless of the `pyproject.toml` version — `trackfix/__init__.py` (the actual source `__version__` is read from, shown in the GUI title bar and `--version`) had never been bumped alongside it. `pyproject.toml` now derives its version dynamically from `trackfix/__init__.py` (`dynamic = ["version"]`) instead of duplicating it, so there's one place to bump per release.
+- "Authenticate Beatport…" / "Authenticate Discogs…" in the GUI just reopened another dj-trackfix window instead of authenticating. It relaunched `sys.executable -m trackfix.cli --auth-...`, but in the frozen exe `sys.executable` is `dj-trackfix-gui.exe` itself, not a Python interpreter. Replaced with native Tkinter dialogs that call `beatport.py`/`discogs_auth.py`'s auth functions directly — no console relaunch needed.
+
 ## [0.3.1] - 2026-07-03
 
 ### Fixed

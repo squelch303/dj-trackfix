@@ -6,6 +6,12 @@ config.yaml
 *.m4a_converted
 *.aiff_converted
 
+# packaging build artifacts (see packaging/BUILD.md)
+.venv-build/
+ffmpeg.zip
+ffmpeg-extracted/
+packaging/output/
+
 # Audio files — never commit actual tracks
 *.aiff
 *.aif

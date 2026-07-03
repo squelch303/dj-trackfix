@@ -18,15 +18,17 @@ Or, once installed:
 
 import os
 import queue
-import subprocess
 import sys
 import threading
+import webbrowser
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 from . import __version__
+from . import beatport
+from . import discogs_auth
 from .config import load_config
 from .convert import run_convert
 from .fix import run_fix
@@ -192,10 +194,10 @@ class TrackfixGUI(tk.Tk):
         authrow = ttk.Frame(self)
         authrow.pack(fill="x", **pad)
         ttk.Button(
-            authrow, text="Authenticate Beatport…", command=lambda: self._run_auth("--auth-beatport")
+            authrow, text="Authenticate Beatport…", command=self._auth_beatport
         ).pack(side="left")
         ttk.Button(
-            authrow, text="Authenticate Discogs…", command=lambda: self._run_auth("--auth-discogs")
+            authrow, text="Authenticate Discogs…", command=self._auth_discogs
         ).pack(side="left", padx=(6, 0))
         ttk.Button(authrow, text="Show tags (info)", command=self._run_info).pack(
             side="left", padx=(6, 0)
@@ -267,22 +269,128 @@ class TrackfixGUI(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"Could not open config file:\n{e}")
 
-    def _run_auth(self, flag):
-        """
-        Beatport/Discogs auth prompt for username/password/verifier codes on
-        stdin — that needs a real console, which a windowed GUI app doesn't
-        have. Launch the existing, already-tested CLI auth flow in its own
-        console window instead of reimplementing it here.
-        """
-        args = [sys.executable, "-m", "trackfix.cli", flag]
-        config_path = self.config_path.get().strip()
-        if config_path:
-            Path(config_path).parent.mkdir(parents=True, exist_ok=True)
-            args += ["--config", config_path]
+    def _auth_config_path(self) -> Path:
+        path_str = self.config_path.get().strip() or str(default_config_path())
+        path = Path(path_str)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.set(str(path))
+        return path
+
+    def _load_metadata_section(self, path: Path, source: str) -> dict:
+        if not path.exists():
+            return {}
         try:
-            subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE)
+            import yaml
+
+            with open(path) as f:
+                cfg = yaml.safe_load(f) or {}
+            return cfg.get("metadata", {}).get(source, {})
+        except Exception:
+            return {}
+
+    def _auth_beatport(self):
+        """
+        Beatport's CLI flow (beatport.run_auth) prompts for username/password
+        on stdin via input()/getpass — that needs a real console, which a
+        windowed GUI app doesn't have. This asks for the same values via
+        Tkinter dialogs instead and calls the same underlying functions
+        (fetch_client_id / authorize / save_tokens), so nothing about the
+        actual auth logic is duplicated — just how the values are collected.
+        """
+        path = self._auth_config_path()
+        cfg = self._load_metadata_section(path, "beatport")
+
+        username = cfg.get("username") or simpledialog.askstring(
+            "Beatport", "Beatport username/email:", parent=self
+        )
+        if not username:
+            return
+        password = simpledialog.askstring(
+            "Beatport", "Beatport password:", parent=self, show="*"
+        )
+        if not password:
+            return
+
+        def job():
+            print("\nBeatport Authentication")
+            print("[beatport] Fetching client_id...")
+            client_id = cfg.get("client_id") or beatport.fetch_client_id()
+            if not client_id:
+                print("[beatport] Could not fetch client_id automatically")
+                return
+            print(f"[beatport] client_id: {client_id[:8]}…")
+            print("[beatport] Authenticating...")
+            token_data = beatport.authorize(username, password, client_id)
+            if not token_data or "access_token" not in token_data:
+                print("[beatport] Authentication failed")
+                return
+            beatport.save_tokens(path, token_data, client_id)
+            print("[beatport] Authentication successful ✓")
+
+        self._start_worker(job)
+
+    def _auth_discogs(self):
+        """Same reasoning as _auth_beatport — native dialogs instead of a
+        console, calling discogs_auth's existing token-exchange functions."""
+        try:
+            import discogs_client
+        except ImportError:
+            messagebox.showerror(
+                "Missing dependency", "discogs-client is not installed."
+            )
+            return
+
+        path = self._auth_config_path()
+        cfg = self._load_metadata_section(path, "discogs")
+
+        consumer_key = cfg.get("consumer_key", "")
+        consumer_secret = cfg.get("consumer_secret", "")
+        if not (consumer_key and consumer_secret):
+            consumer_key = simpledialog.askstring(
+                "Discogs", "Consumer Key:", parent=self
+            )
+            if not consumer_key:
+                return
+            consumer_secret = simpledialog.askstring(
+                "Discogs", "Consumer Secret:", parent=self, show="*"
+            )
+            if not consumer_secret:
+                return
+
+        client = discogs_client.Client(discogs_auth.USER_AGENT)
+        client.set_consumer_key(consumer_key, consumer_secret)
+
+        try:
+            _token, _secret, url = client.get_authorize_url()
         except Exception as e:
-            messagebox.showerror("Error", f"Could not launch auth console:\n{e}")
+            messagebox.showerror("Error", f"Failed to get request token:\n{e}")
+            return
+
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+
+        verifier = simpledialog.askstring(
+            "Discogs",
+            "A browser window should have opened to authorize dj-trackfix.\n"
+            f"If not, open this URL manually:\n{url}\n\n"
+            "Enter the verifier code from Discogs:",
+            parent=self,
+        )
+        if not verifier:
+            return
+
+        def job():
+            try:
+                access_token, access_secret = client.get_access_token(verifier)
+            except Exception as e:
+                print(f"[discogs] Failed to get access token: {e}")
+                return
+            discogs_auth.save_discogs_tokens(path, access_token, access_secret)
+            print("[discogs] Authentication successful ✓")
+
+        self._start_worker(job)
 
     def _run_info(self):
         path = self.input_path.get().strip()
