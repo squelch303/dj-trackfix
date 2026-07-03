@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `trackfix-gui` — Tkinter GUI front end (folder picker, operation checkboxes, live log). No new dependencies — stdlib only.
+- `packaging/` — PyInstaller build script and Inno Setup installer script for a standalone Windows `.exe` + installer. See `packaging/BUILD.md`.
+- GUI config defaults to `%APPDATA%\dj-trackfix\config.yaml` so it works from a read-only install location (e.g. Program Files) without admin rights.
+- `.github/workflows/release.yml` — pushing a `v*` tag builds the exe + installer on GitHub's Windows runners and publishes both to a GitHub Release. See `RELEASING.md`.
+
 ## [0.2.2] - 2026-06-06
 
 ### Added

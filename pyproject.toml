@@ -21,6 +21,9 @@ dependencies = [
 [project.scripts]
 trackfix = "trackfix.cli:main"
 
+[project.gui-scripts]
+trackfix-gui = "trackfix.gui:main"
+
 [tool.setuptools.packages.find]
 include = ["trackfix*"]
 

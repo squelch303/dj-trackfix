@@ -1,0 +1,89 @@
+name: Release
+
+# Builds the Windows GUI exe + installer and publishes them to a GitHub
+# Release whenever a version tag (v1.2.3) is pushed.
+#
+# To cut a release:
+#   1. Bump version in pyproject.toml and packaging/installer.iss comments
+#      (cosmetic only — the installer version below comes from the tag).
+#   2. Update CHANGELOG.md.
+#   3. git tag v1.2.3 && git push origin v1.2.3
+#
+# See packaging/BUILD.md for what this workflow automates locally.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install dj-trackfix + build tools
+        run: |
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Build GUI exe with PyInstaller
+        run: >
+          pyinstaller
+          --name dj-trackfix-gui
+          --windowed
+          --noconfirm
+          --paths .
+          --add-data "config.example.yaml;."
+          --hidden-import musicbrainzngs
+          --hidden-import discogs_client
+          --collect-all discogs_client
+          trackfix\gui.py
+
+      - name: Download and bundle ffmpeg
+        # Resolve the asset via the GitHub API rather than hardcoding the
+        # exact filename — BtbN's build naming has drifted before, this
+        # survives that as long as a "win64-gpl" static zip exists.
+        run: |
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest" -Headers @{ "User-Agent" = "dj-trackfix-ci" }
+          $asset = $release.assets | Where-Object { $_.name -like "*win64-gpl*.zip" } | Select-Object -First 1
+          if (-not $asset) { throw "Could not find a win64-gpl ffmpeg build in BtbN/FFmpeg-Builds latest release" }
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-extracted
+          $ffmpegExe = Get-ChildItem -Path ffmpeg-extracted -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName -Destination "dist\dj-trackfix-gui\ffmpeg.exe"
+
+      - name: Zip portable build
+        run: |
+          Compress-Archive -Path "dist\dj-trackfix-gui" -DestinationPath "dj-trackfix-${{ steps.version.outputs.version }}-windows-portable.zip"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.version }} packaging\installer.iss
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dj-trackfix-${{ steps.version.outputs.version }}-windows-portable.zip
+            packaging/output/dj-trackfix-${{ steps.version.outputs.version }}-setup.exe
+          generate_release_notes: true

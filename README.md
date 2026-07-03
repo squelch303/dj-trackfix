@@ -33,6 +33,19 @@ Rules:
 - BPM and Key from Beatport are only written if not already set (MIK takes priority)
 - Low-confidence MusicBrainz matches are skipped rather than written
 
+## Windows GUI
+
+Don't want to touch a terminal? `trackfix-gui` is a small Tkinter front end for the same
+operations — pick a folder, tick the boxes, hit Run.
+
+```bash
+pip install -e .
+trackfix-gui
+```
+
+For a fully packaged, no-Python-required `.exe` and installer, see
+[`packaging/BUILD.md`](packaging/BUILD.md).
+
 ## Install
 
 Requires Python 3.10+ and [ffmpeg](https://ffmpeg.org/) in your PATH.
