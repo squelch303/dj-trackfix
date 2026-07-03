@@ -55,7 +55,7 @@ jobs:
           --hidden-import musicbrainzngs
           --hidden-import discogs_client
           --collect-all discogs_client
-          trackfix\gui.py
+          run_gui.py
 
       - name: Download and bundle ffmpeg
         # Resolve the asset via the GitHub API rather than hardcoding the

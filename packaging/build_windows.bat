@@ -36,7 +36,7 @@ pyinstaller ^
     --hidden-import musicbrainzngs ^
     --hidden-import discogs_client ^
     --collect-all discogs_client ^
-    trackfix\gui.py
+    run_gui.py
 
 echo [4/4] Done.
 echo.

@@ -47,6 +47,15 @@ Then **copy `ffmpeg.exe` into `dist\dj-trackfix-gui\`**, next to
 `dj-trackfix-gui.exe`. The GUI checks for it there at startup and adds that
 folder to `PATH` automatically — see `bundled_ffmpeg_dir()` in `gui.py`.
 
+> **Why `run_gui.py` and not `trackfix\gui.py` directly:** PyInstaller runs
+> whatever script you point it at as `__main__`, exactly like `python
+> gui.py`. Since `trackfix/gui.py` uses relative imports (it's meant to be
+> run as `python -m trackfix.gui` or via the `trackfix-gui` entry point),
+> freezing it directly causes `ImportError: attempted relative import with
+> no known parent package` in the built exe. `run_gui.py` at the repo root
+> is a one-line shim with an absolute import that PyInstaller freezes
+> instead — don't repoint the build at `trackfix\gui.py`.
+
 At this point `dist\dj-trackfix-gui\` is a complete, portable app — you can
 zip it and hand it to someone, or double-click `dj-trackfix-gui.exe`
 directly. Steps 2/3 below just wrap it in a proper installer.

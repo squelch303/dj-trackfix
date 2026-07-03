@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.1] - 2026-07-03
+
+### Fixed
+- Packaged `dj-trackfix-gui.exe` crashed on launch with `ImportError: attempted relative import with no known parent package`. PyInstaller was pointed directly at `trackfix/gui.py`, which uses relative imports and breaks when frozen as `__main__`. Added `run_gui.py` (repo root) as the actual PyInstaller entry point instead — see `packaging/build_windows.bat` and `.github/workflows/release.yml`.
+
 ## [0.3.0] - 2026-07-03
 
 ### Added
