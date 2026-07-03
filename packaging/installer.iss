@@ -12,7 +12,7 @@
 
 #define MyAppName "dj-trackfix"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.2"
+  #define MyAppVersion "0.3.0"
 #endif
 #define MyAppPublisher "squelch303"
 #define MyAppURL "https://github.com/squelch303/dj-trackfix"

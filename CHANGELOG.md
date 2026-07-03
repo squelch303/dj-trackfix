@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-07-03
 
 ### Added
 - `trackfix-gui` — Tkinter GUI front end (folder picker, operation checkboxes, live log). No new dependencies — stdlib only.
