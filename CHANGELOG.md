@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3] - 2026-07-06
+
+### Fixed
+- `metadata.musicbrainz.user_agent` shipped a hardcoded default of `dj-trackfix/0.2.0 ( squelch303@soundstation.net )` — the maintainer's own contact address, silently sent to MusicBrainz on behalf of anyone who never touched their config. Replaced with `metadata.musicbrainz.contact_email`, which has no default: MusicBrainz lookups now refuse to run until the user sets their own email. Discogs and Beatport are unaffected and keep working off their own auth even if MusicBrainz isn't configured.
+- Existing `config.yaml` files with the old `user_agent` key are migrated automatically on next load: a real (non-maintainer) email is carried over to `contact_email`; the maintainer's own address is replaced with the same placeholder used in `config.example.yaml` rather than being copied forward.
+- The `dj-trackfix/0.2.0` string in the Beatport and Discogs User-Agent headers was hardcoded and had drifted from the actual released version (0.3.2). Both now build their User-Agent from `trackfix.__version__` at import time, so they can't go stale again. `metadata.py`'s Discogs client also now reuses `discogs_auth.USER_AGENT` instead of a second hardcoded copy.
+
 ## [0.3.2] - 2026-07-03
 
 ### Fixed
