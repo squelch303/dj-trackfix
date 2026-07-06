@@ -9,6 +9,7 @@ Tokens are saved to config.yaml (gitignored).
 import webbrowser
 from pathlib import Path
 
+from . import __version__
 
 try:
     import discogs_client
@@ -16,7 +17,7 @@ except ImportError:
     discogs_client = None
 
 
-USER_AGENT = "dj-trackfix/0.2.0"
+USER_AGENT = f"dj-trackfix/{__version__}"
 
 
 def save_discogs_tokens(config_path: Path, access_token: str, access_secret: str):

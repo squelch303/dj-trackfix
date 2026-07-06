@@ -17,6 +17,8 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
+from . import __version__
+
 try:
     import requests
 except ImportError:
@@ -24,7 +26,7 @@ except ImportError:
 
 API_BASE          = "https://api.beatport.com/v4"
 REDIRECT_URI      = f"{API_BASE}/auth/o/post-message/"
-USER_AGENT        = "dj-trackfix/0.2.0"
+USER_AGENT        = f"dj-trackfix/{__version__}"
 SCRIPT_SRC_RE     = re.compile(r"src=.(.*js)")
 CLIENT_ID_RE      = re.compile(r"API_CLIENT_ID: \'(.*)\'")
 
