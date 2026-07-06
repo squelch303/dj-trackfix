@@ -30,7 +30,11 @@ sort:
 metadata:
   musicbrainz:
     enabled: true
-    user_agent: "dj-trackfix/0.2.0 ( squelch303@soundstation.net )"
+    # Required — MusicBrainz requires a real contact email in the User-Agent header on
+    # every request and blocks requests that don't have one. Replace with your own email.
+    # dj-trackfix refuses to run --meta with MusicBrainz enabled until this is set (the
+    # app name and version are added automatically — don't include them here).
+    contact_email: "your-email@example.com"
     confidence: 0.6             # Minimum similarity score (0-1) to accept a match
   discogs:
     enabled: true

@@ -23,7 +23,10 @@ try:
 except ImportError:
     MutagenFile = None
 
+from . import __version__
 from .beatport import search_beatport, get_valid_token
+from .config import UNCONFIGURED_EMAIL
+from .discogs_auth import USER_AGENT as DISCOGS_USER_AGENT
 
 # ---------------------------------------------------------------------------
 # Key normalisation — always write Camelot notation
@@ -74,12 +77,29 @@ def to_camelot(key: str) -> str:
 # Lookup
 # ---------------------------------------------------------------------------
 
-def setup_musicbrainz(user_agent: str):
+def setup_musicbrainz(contact_email: str):
     if mb is None:
         return False
-    app, version, contact = "dj-trackfix", "0.2.0", user_agent
-    mb.set_useragent(app, version, contact)
+    mb.set_useragent("dj-trackfix", __version__, contact_email)
     return True
+
+
+def check_musicbrainz_config(cfg: dict) -> None:
+    """Check MusicBrainz-specific settings only.
+    Raises ValueError with a user-facing message if contact_email is missing.
+    Does NOT validate Discogs/Beatport — those have their own auth and must
+    keep working independently of MusicBrainz's configuration state."""
+    mb_cfg = cfg.get("musicbrainz", {})
+    if mb_cfg.get("enabled"):
+        email = (mb_cfg.get("contact_email") or "").strip()
+        if not email or email.lower() == UNCONFIGURED_EMAIL:
+            raise ValueError(
+                "MusicBrainz is enabled but metadata.musicbrainz.contact_email is not set.\n"
+                "  MusicBrainz requires every client to identify itself with a real contact\n"
+                "  email in its User-Agent header and blocks requests that don't.\n"
+                "  Fix: edit config.yaml and set metadata.musicbrainz.contact_email to your\n"
+                "  own email, or set metadata.musicbrainz.enabled: false to skip MusicBrainz."
+            )
 
 
 def similarity(a: str, b: str) -> float:
@@ -135,10 +155,10 @@ def lookup_discogs(artist: str, title: str, token: str = "", access_token: str =
         return {}
     try:
         if access_token and access_secret:
-            d = discogs_client.Client("dj-trackfix/0.2.0")
+            d = discogs_client.Client(DISCOGS_USER_AGENT)
             d.set_token(access_token, access_secret)
         elif token:
-            d = discogs_client.Client("dj-trackfix/0.2.0", user_token=token)
+            d = discogs_client.Client(DISCOGS_USER_AGENT, user_token=token)
         else:
             return {}
 
@@ -196,7 +216,7 @@ def lookup_metadata(artist: str, title: str, config: dict) -> dict:
     meta = {}
 
     if cfg["musicbrainz"]["enabled"]:
-        setup_musicbrainz(cfg["musicbrainz"]["user_agent"])
+        setup_musicbrainz(cfg["musicbrainz"].get("contact_email", ""))
         confidence = cfg["musicbrainz"].get("confidence", 0.6)
         mb_meta = lookup_musicbrainz(artist, title, confidence=confidence)
         meta.update(mb_meta)
@@ -427,6 +447,13 @@ def run_meta(input_path: Path, config: dict, dry_run: bool, verbose: bool, ext_f
     if MutagenFile is None:
         print("[meta] Error: mutagen is not installed. Run: pip install mutagen")
         return []
+
+    try:
+        check_musicbrainz_config(config["metadata"])
+    except ValueError as e:
+        print(f"[meta] Error: {e}")
+        print("[meta] Disabling MusicBrainz for this run — Discogs/Beatport will still run if configured.")
+        config["metadata"]["musicbrainz"]["enabled"] = False
 
     fields_cfg = config["metadata"]["fields"]
     files = get_audio_files(input_path, ext_filter, recursive)
